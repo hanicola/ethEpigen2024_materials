@@ -1,0 +1,25 @@
+---
+title: "assignment.Rmd"
+author: "Nicola Hallmann"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Assignmet 1
+
+### Loading libraries
+```{r library}
+library(epiwraps)
+```
+
+### Printing Session infos
+```{r info}
+sessionInfo()
+```
+
+
+
