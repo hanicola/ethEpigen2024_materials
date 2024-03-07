@@ -1,0 +1,100 @@
+---
+title: "Assignment 02 Annotation Hub"
+author: "Nicola Hallmann"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo = FALSE}
+library(AnnotationHub) # to fetch genomes, annotations, etc.
+library(ensembldb)     # to manipulate ensembl gene annotations
+library(GenomicRanges) # data structure for genomic ranges
+library(ggplot2)
+```
+## 1. AnnotationHub
+Using AnnotationHub, find and download the following annotations data:
+* The mouse (Mus Musculus) EnsDb object, version 102, genome build GRCm38
+* The mouse genome sequence ( dna_sm ) in TwoBit/2bit format for GRCm38
+* The drosophila melanogaster genome sequence ( dna_sm ) in TwoBit/2bit format for BDGP6
+
+```{r}
+ah <- AnnotationHub()
+```
+```{r}
+# find and download the annotation data for mouse (Mus Musculus) EnsDb object, version 102, genome build GRCm38
+q <- query(ah, c("Mus Musculus", "ensembl", "EnsDb", "102"))
+# we can check the objects that match:
+q
+ensdb_mouse <- ah[["AH89211"]]
+```
+```{r}
+# find and download the mouse genome sequence ( dna_sm ) in TwoBit/2bit format for GRCm38
+q <- query(ah, c("Mus Musculus", "GRCm38", "dna_sm"))
+# we can check the objects that match:
+q
+dna_sm_mouse <- ah[["AH88477"]]
+```
+```{r}
+# find and download the drosophila melanogaster genome sequence ( dna_sm ) in TwoBit/2bit format for BDGP6
+q <- query(ah, c("Drosophila", "BDGP6", "dna_sm"))
+# we can check the objects that match:
+q
+dna_sm_fly <- ah[["AH49674"]]
+```
+## 2. Using the mouse EnsDb, find the following:
+```{r}
+# How many different ensembl gene IDs and gene symbols are there for protein-coding genes?
+
+# get the protein coding genes
+protein_coding_genes <- genes(ensdb_mouse, filter=TxBiotypeFilter("protein_coding"))
+head(protein_coding_genes)
+
+# get gene IDs
+gene_ids <- protein_coding_genes$gene_id
+unique_gene_ids <- unique(gene_ids) # only those that are unique
+count_unique_gene_ids <- length(unique_gene_ids) # count
+print(paste("There're", count_unique_gene_ids, "unique gene IDs for protein-coding genes"))
+
+# get gene symbols
+gene_symbols <- protein_coding_genes$symbol
+unique_gene_symbols <- unique(gene_symbols) # only those that are unique
+count_unique_gene_symbols <- length(unique_gene_symbols) # count
+print(paste("There're", count_unique_gene_symbols, "unique gene symbols for protein-coding genes"))
+
+```
+
+
+Plot the distribution of the (spliced) length of protein-coding transcripts 
+(tip: this will require you to extract exons of protein-coding transcripts from the database, and split them by transcript, before summing the width of the exons of each transcript)
+```{r}
+# returning the exons split by transcripts
+# exsPerTx <- exonsBy(ensdb_mouse, column=c("tx_id","tx_biotype"))
+# limited to protein-coding
+exsPerTx <- exonsBy(ensdb_mouse, column=c("tx_id","tx_biotype"), 
+                    filter=TxBiotypeFilter("protein_coding"))
+
+# sum of width of exons per transcript
+widthPerTx <- sum(width(exsPerTx))
+
+# plotting the length of the transcripts on the x-axis and frequency on the y-axis
+# turn into dataframe for plotting
+data <- data.frame(width = widthPerTx)
+
+# Plot the histogram
+ggplot(data, aes(x = width)) +
+  geom_histogram(bins = 70, fill = "seagreen", color = "black", alpha = 0.8) +
+  labs(title = "Distribution of Exon Width per Transcript",
+       x = "Exon Width",
+       y = "Frequency") +
+  theme_minimal() +
+  xlim(0, 20000)  # Set the x-axis limits from 0 to 18000
+```
+
+
+
+
+
