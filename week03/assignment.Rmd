@@ -1,0 +1,122 @@
+---
+title: "Assignment 03"
+author: "Nicola Hallmann"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r packages}
+suppressPackageStartupMessages({
+  library(AnnotationHub) # to retrieved to genomes / annotations
+  library(Rsubread) # alignment
+  library(rtracklayer) # to import/export files
+  library(Biostrings) # handle sequences (DNA/protein/RNA)
+  library(Rfastp) # read adapter trimming, QC of reads
+  library(epiwraps) # visualization
+})
+ah <- AnnotationHub()
+```
+
+## Downloading the Data for Drosophila ChIP-seq for the Protein CTCF 
+(no input control)
+```{r get fastq}
+options(timeout=3600) # increase the download timeout since the file is large and cnx slow
+dir.create("raw")
+# mode = "wb" ensures that it is saved in binary mode
+download.file("https://www.encodeproject.org/files/ENCFF127RRR/@@download/ENCFF127RRR.fastq.gz", dest = "raw/CTCF.fastq.gz", mode = "wb") 
+```
+## Processing the Raw Data
+### Quality Control of Reads and Triming
+```{r qc}
+dir.create("rfastp.trimmed")
+
+fastq_file <- "raw/CTCF.fastq.gz"
+
+qc <- Rfastp::rfastp(fastq_file, thread = 6, overrepresentationAnalysis = TRUE,
+                     outputFastq = file.path("rfastp.trimmed/", gsub("\\.fastq\\.gz$", "", basename(fastq_file))))
+```
+This will create an html report with before/after QC plots, as well as a trimmed
+and filtered fastq file. Furthermore, the R output object (equivalent to the .json 
+stats also saved by the program) can be used to generate the QC plots inside a
+markdown, for example:
+
+```{r qc plot}
+Rfastp::curvePlot(qc, curve = "content_curves")
+```
+## Alignment
+
+### Find out which genome to use
+It's a different fly line than the one used for generating the data used in the practice.
+I'll als use the BDGP6 build.
+### Building a genome index for mapping
+
+This has to be done only once for a genome, and can then be re-used across projects
+```{r, eval=FALSE}
+# get the genome sequence from AnnotationHub
+genome <- ah[["AH49674"]]
+# create a new directory that will contain the genome index
+dir.create("BDGP6_genome")
+# write the genome sequence in fasta format
+export(import.2bit(genome), "BDGP6_genome/genome.fasta.gz", compress=TRUE)
+# build a Rsubread index
+Rsubread::buildindex("BDGP6_genome/rsubread", reference = "BDGP6_genome/genome.fasta.gz")
+```
+
+(I ran it in the practice and use that one)
+here: "../BDGP6_genome/genome.fasta.gz"
+
+"The genes command only makes sense when applied to a gene annotation object, i.e. an EnsDb. The "genome" only contains the genome sequence, no information about the genes. You have to fetch the corresponding EnsDb object."
+
+Fetching the EnsDb object corresponding to the genome BDGP6
+```{r EnsDb}
+q <- query(ah, c("Drosophila", "BDGP6", "ensdb"))
+q
+genome_ensdb <- ah[["AH116255"]] # AH116255 | Ensembl 111 EnsDb for Drosophila melanogaster
+```
+
+### Alignment
+
+```{r Alignment}
+# to know how many CPUs are available:
+parallel::detectCores() # 8
+
+dir.create("aligned")
+align.stats <- Rsubread::align(index = "../BDGP6_genome/rsubread", type = "dna",
+                               readfile1 = "rfastp.trimmed/CTCF_R1.fastq.gz",
+                               output_file = "aligned/CTCF.bam",
+                               nthreads = 6, sortReadsByCoordinates = TRUE)
+align.stats
+```
+## Peak Calling
+```{r Peak calling}
+peaks <- callPeaks("aligned/CTCF.bam", fragLength = 200L)
+# save it as a bed file:
+dir.create("peaks")
+rtracklayer::export.bed(peaks, "peaks/peaks_200L.bed")
+```
+
+## Plotting the signal around one of the peaks that is located inside a gene.
+### Finding a suitable peak
+```{r}
+# Finding the genes in the genome
+genes <- genes(genome_ensdb)
+# find all peaks that overlap with genes
+#  the first argument is the query, and the second argument is the subject
+peaks_within_genes <- findOverlaps(genes, peaks)
+peaks_within_genes[1] # peak 6 is inside a gene
+```
+
+
+# Report
+3504769 reads where mapped. This corresponds to 91.8%.
+With "fragLength = 200L", 2697 peaks, 1172 of which with FDR<0.05, were called.
+
+### peaks[6] is located within a gene:
+```{r Plot}
+peaks[6]
+plotSignalTracks(files = "aligned/CTCF.bam", region = peaks[6], extend = 1000)
+```
