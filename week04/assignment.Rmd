@@ -1,0 +1,88 @@
+---
+title: "Assignment 04"
+author: "Nicola Hallmann"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+Find and download from ENCODE the peaks (i.e. bed-like format) for the following in mouse embryonic stem cells (mESC):
+- Transcription factor p300
+  - the only embryonic cell line: ES-Bruce4 (https://www.encodeproject.org/experiments/ENCSR000CCD/)
+  - two replicates
+    - ENCFF653YVR (https://www.encodeproject.org/files/ENCFF653YVR/)
+    - ENCFF350GCX (https://www.encodeproject.org/files/ENCFF350GCX/)
+    
+- histone modifications H3K4me3, H3K4me1, H3K27ac, and H3K27me3
+  - H3K4me3
+    - ES-Bruce4; ENCFF247GVM: (https://www.encodeproject.org/files/ENCFF247GVM/)
+  - H3K4me1
+    - ES-Bruce4; ENCFF333IJH (https://www.encodeproject.org/files/ENCFF333IJH/)
+  - H3K27a:
+    - ES-Bruce4; ENCFF360VIS (https://www.encodeproject.org/files/ENCFF360VIS/)
+  - H3K27me3:
+    - ES-Bruce4; EENCFF558YNC (https://www.encodeproject.org/files/ENCFF558YNC/)
+    
+(when there are replicates, we recommend using the bed file denoted as “conservative IDR thresholded peaks”)
+
+```{r packages}
+suppressPackageStartupMessages({
+  library(AnnotationHub)
+  library(rtracklayer)
+  library(epiwraps)
+  library(GenomicRanges)
+})
+ah <- AnnotationHub()
+```
+
+```{r p300}
+# read in peaks for p300; specify that it is narrowPeak with format = "narrowPeak" - using ENCFF653YVR
+peaks_p300 <- rtracklayer::import("ENCFF653YVR.bed/ENCFF653YVR.bed", format = "narrowPeak")
+
+head(peaks_p300) # GRanges object
+peaks_p300[1]
+```
+```{r histone marks}
+# read in peaks for all four histone marks; specify that it is narrowPeak with format = "narrowPeak" - using ENCFF653YVR
+# verify that all is well by taking a look
+H3K4me3 <- rtracklayer::import("ENCFF247GVM.bed/ENCFF001KER.raw.srt.filt.nodup.srt.SE-ENCFF001KEQ.raw.srt.filt.nodup.srt.SE_pooled.tagAlign.replicated.narrowPeak", format = "narrowPeak")
+head(H3K4me3) # GRanges object
+H3K4me3[1]
+
+H3K4me1 <- rtracklayer::import("ENCFF333IJH.bed/ENCFF001KEF.raw.srt.filt.nodup.srt.SE-ENCFF001KEG.raw.srt.filt.nodup.srt.SE_pooled.tagAlign.replicated.narrowPeak", format = "narrowPeak")
+head(H3K4me1) # GRanges object
+H3K4me1[1]
+
+H3K27a <- rtracklayer::import("ENCFF360VIS.bed/ENCFF001KDQ.raw.srt.filt.nodup.srt.SE-ENCFF001KDO.raw.srt.filt.nodup.srt.SE_pooled.tagAlign.replicated.narrowPeak")
+head(H3K27a) # GRanges object
+H3K27a[1]
+
+H3K27me3 <- rtracklayer::import("ENCFF558YNC.bed/final.replicated.narrowPeak")
+head(H3K27me3) # GRanges object
+H3K27me3[1]
+```
+## QUESTION: Of the p300 peaks, what proportion overlap each of the marks?
+
+```{r overlaps}
+print("Of the p300 peaks ")
+p300_overlap_H3K4me3 <- overlapsAny(peaks_p300, H3K4me3, type = "any")
+print(paste("- ", sum(p300_overlap_H3K4me3)/length(p300_overlap_H3K4me3)*100, "% overlap the H3K4me3 mark.", sep = ""))
+
+p300_overlap_H3K4me1 <- overlapsAny(peaks_p300, H3K4me1, type = "any")
+print(paste("- ", sum(p300_overlap_H3K4me1)/length(p300_overlap_H3K4me1)*100, "% overlap the H3K4me1 mark.", sep = ""))
+
+p300_overlap_H3K27a <- overlapsAny(peaks_p300, H3K27a, type = "any")
+print(paste("- ", sum(p300_overlap_H3K27a)/length(p300_overlap_H3K27a)*100, "% overlap the H3K27a mark.", sep = ""))
+
+p300_overlap_H3K27me3 <- overlapsAny(peaks_p300, H3K27me3, type = "any")
+print(paste("- ", sum(p300_overlap_H3K27me3)/length(p300_overlap_H3K27me3)*100, "% overlap the H3K27me3 mark.", sep = ""))
+```
+
+
+
+
+
