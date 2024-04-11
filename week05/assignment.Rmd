@@ -1,0 +1,98 @@
+---
+title: "assignment 05"
+author: "Nicola Hallmann"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+suppressPackageStartupMessages({
+  library(AnnotationHub)
+  library(ensembldb)
+  library(GenomicRanges)
+  library(epiwraps)
+  library(rtracklayer)
+  library(ggplot2)
+})
+ah <- AnnotationHub(localHub=TRUE)
+```
+- Using the peaks downloaded last week, identify bivalent domains (H3K27me3 + H3K4me3) in mESCs
+  - H3K27me3:
+    - ES-Bruce4; EENCFF558YNC (https://www.encodeproject.org/files/ENCFF558YNC/)
+  - H3K4me3
+    - ES-Bruce4; ENCFF247GVM: (https://www.encodeproject.org/files/ENCFF247GVM/)
+
+```{r load peaks}
+# read in peaks for the two histone marks; specify that it is narrowPeak with format = "narrowPeak"
+H3K27me3_mESC <- rtracklayer::import("ENCFF558YNC.bed/final.replicated.narrowPeak")
+# head(H3K27me3_mESC) # GRanges object
+# H3K27me3_mESC[1]# verify that all is well by taking a look
+
+H3K4me3_mESC <- rtracklayer::import("ENCFF247GVM.bed/ENCFF001KER.raw.srt.filt.nodup.srt.SE-ENCFF001KEQ.raw.srt.filt.nodup.srt.SE_pooled.tagAlign.replicated.narrowPeak", format = "narrowPeak")
+# head(H3K4me3_mESC) # GRanges object
+# H3K4me3_mESC[1]
+```
+
+```{r find bivalent domains}
+# find the intersects of the peaks -> Genomic Regions where both marks are recorded
+suppressWarnings(
+  biv_dom_mESC <- GenomicRanges::intersect(H3K27me3_mESC, H3K4me3_mESC, ignore.strand = TRUE)
+)
+n_biv_mESC <- length(biv_dom_mESC)
+```
+
+
+### Question: what happens to those regions upon differentiation?
+Choose *one* differentiated cell type (e.g. hepatocytes, neural progenitor, or smooth muscle cells)
+    
+Download the H3K27me3 and H3K4me3 peaks from this cell type
+* hematopoietic cells ->  C12.LX -> Cancer cell line
+  - H3K27me3: https://www.encodeproject.org/experiments/ENCSR000DHY/
+  - H3K4me3: https://www.encodeproject.org/experiments/ENCSR000DHU/
+
+
+```{r}
+# read in peaks for the two histone marks; specify that it is narrowPeak with format = "narrowPeak"
+# ENCFF905MCV.bed
+H3K27me3_CH12 <- rtracklayer::import("ENCFF905MCV.bed/ENCFF905MCV.bed", format = "narrowPeak")
+# head(H3K27me3_CH12) # GRanges object
+# H3K27me3_CH12[1]# verify that all is well by taking a look
+
+# ENCFF182RTR.bed
+H3K4me3_CH12 <- rtracklayer::import("ENCFF182RTR.bed/ENCFF182RTR.bed", format = "narrowPeak")
+# head(H3K4me3_CH12) # GRanges object
+# H3K4me3_CH12[1]
+```
+
+How many of the mESC bivalent domains are, in this differentiated cell type, overlapping either mark or their combination (in this differentiated cell type)?
+
+```{r bivalent diff}
+# find the intersects of the peaks -> Genomic Regions where both marks are recorded
+suppressWarnings(
+  biv_dom_CH12 <- GenomicRanges::intersect(H3K27me3_CH12, H3K4me3_CH12, ignore.strand = TRUE)
+)
+n_biv_CH12 <- length(biv_dom_CH12)
+```
+
+
+```{r overlaps mESC and diff}
+# overlapsAny(query, subject) -> how many peaks of the query overlap with anything in the subject
+biv_mESC_overlap_H3K4me3_CH12 <- overlapsAny(biv_dom_mESC, H3K4me3_CH12, type = "any")
+biv_mESC_overlap_H3K27me3_CH12 <- overlapsAny(biv_dom_mESC, H3K27me3_CH12, type = "any")
+biv_mESC_overlap_biv_CH12 <- overlapsAny(biv_dom_mESC, biv_dom_CH12, type = "any")
+```
+
+
+```{r print findings}
+print(paste("Of the ", n_biv_mESC, " bivalent domains in mESC, ", sum(biv_mESC_overlap_biv_CH12), " overlap with bivalent domains, ",
+            sum(biv_mESC_overlap_H3K27me3_CH12), " overlap with H3K27me3 marks and ", sum(biv_mESC_overlap_H3K4me3_CH12), 
+            " overlap with H3K4me3 marks in CH12." ,sep = ""))
+```
+
+
+
+
