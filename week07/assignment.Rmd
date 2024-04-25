@@ -1,0 +1,125 @@
+---
+title: "Assignment 07 ATAC"
+author: "Nicola Hallmann"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+suppressPackageStartupMessages({
+  library(epiwraps)
+  library(AnnotationHub)
+  library(MotifDb)
+  library(memes)
+  library(universalmotif)
+  library(ensembldb)
+  library(ggplot2)
+  library(magick)
+})
+
+ah <- AnnotationHub(localHub=TRUE)
+ensdb <- ah[["AH89211"]] # mouse ensembldb object
+```
+# Task
+In the same dataset of ATAC on chr19, plot
+
+1. the insertion (i.e. ‘cuts’) profile of nucleosome-free fragments
+2. the centers of nucleosome-containing fragments
+
+around the high-confidence motifs of two factors.
+
+
+You can choose your own factors of interest, or for instance use KLF4 and MAZ.
+
+Expected form of the answer: 2 figures (one for each factor), each containing the two signals around the motifs
+
+Don't forget to render your markdown and push it as assignment.html !
+
+
+## Download the data
+
+```{r, eval=FALSE}
+# mode = "wb" is required when using Windows
+download.file("https://ethz-ins.org/content/w7/atac.chr19.bam", "atac.chr19.bam", mode = "wb")
+download.file("https://ethz-ins.org/content/w7/atac.chr19.bam.bai", "atac.chr19.bam.bai", mode = "wb")
+```
+## Preparing tracks
+```{r}
+bam <- "atac.chr19.bam"
+
+# create a track using only nucleosome-free fragments, the number of cuts/insertion sites at each position
+# a single nucleosome has 146bp wrapped around it, so nucleoosme-free fragments are shorter than that
+bam2bw(bam, output_bw = "NF_cuts.bw", paired=TRUE, binWidth=1L, type="ends", extend=2L, minFragLength=30, 
+       maxFragLength=120, shift=c(4L,-5L), forceSeqlevelsStyle = "Ensembl")
+
+# create a track using only the (10bp) centers of mono-nucleosome fragments
+# single nucleosome has 146bp but there are also the linkers -> so the total length will fall somewhere between 140 and 220
+bam2bw(bam, output_bw = "mono_centers.bw", paired = TRUE, binWidth = 5L, minFragLength = 140, shift = c(4L,-5L), 
+       maxFragLength = 220, type = "center", extent = 10L, forceSeqlevelsStyle = "Ensembl")
+
+list.files()
+```
+
+## Get the motifs for KLF4 and MAZ
+```{r}
+# get KLF4 and MAZ motif
+motif_KLF4 <- MotifDb::query(MotifDb, c("KLF4","Mus"))[[1]] # HOCOMOCOv10
+motif_MAZ <- MotifDb::query(MotifDb, c("MAZ","Mus"))[[1]] # HOCOMOCOv10
+
+motif_KLF4_con <- convert_motifs(motif_KLF4, class = "TFBSTools-PFMatrix")
+motif_MAZ_con <- convert_motifs(motif_MAZ, class = "TFBSTools-PFMatrix")
+
+genome <- ah[["AH68356"]]
+# get the sequence for chr19:
+chr19 <- import(genome)["19"]
+
+# find motif matches across chr19
+mo_KLF4_on19 <- motifmatchr::matchMotifs(motif_KLF4_con, chr19, out = "positions", p.cutoff = 1e-5)[[1]]
+mo_MAZ_on19 <- motifmatchr::matchMotifs(motif_MAZ_con, chr19, out = "positions", p.cutoff = 1e-5)[[1]]
+
+# convert to GRanges
+mo_KLF4_on19 <- as(setNames(mo_KLF4_on19,names(chr19)), "GRanges")
+mo_MAZ_on19 <- as(setNames(mo_MAZ_on19,names(chr19)), "GRanges")
+```
+
+
+## Get the signal around the high-confidence motifs of KLF and MAZ
+```{r}
+tracks = c("NF_cuts.bw", "mono_centers.bw")
+
+# extract signals around the motif occurences
+# zoom in to 300bp around the motif centers, in windows of 5bp
+sm_KLF4 <- signal2Matrix(tracks, mo_KLF4_on19, w = 5, extend = 300)
+sm_MAZ <- signal2Matrix(tracks, mo_MAZ_on19, w = 5, extend = 300)
+```
+
+## Plot
+### Without background normalisation
+
+```{r, fig.width=8, fig.height=4}
+# plot the signals:
+plotEnrichedHeatmaps(sm_KLF4, trim = 0.95)
+plotEnrichedHeatmaps(sm_MAZ, trim = 0.95)
+```
+
+### With background normalisation
+```{r, fig.width=8, fig.height=4}
+# use a background normalisation
+nf <- getNormFactors(tracks, useSeqLevels = "19", nwind = 5000L)
+
+# then apply the normalisation factors:
+sm_KLF4_norm <- renormalizeSignalMatrices(sm_KLF4, scaleFactors = nf)
+sm_MAZ_norm <- renormalizeSignalMatrices(sm_MAZ, scaleFactors = nf)
+
+# subset to the top 1000 regions:
+# Comment from Slack: Forget about the minRowVal, 12 is way too high. (It's mainly for getting rid of rows with little signal, but at the moment this needs to be adjusted manually)
+plotEnrichedHeatmaps(sm_KLF4_norm, trim = 0.95, minRowVal = 2, colors = c("white","darkred"))
+plotEnrichedHeatmaps(sm_MAZ_norm, trim = 0.95, minRowVal = 2, colors = c("white","darkred"))
+```
+
+
+
