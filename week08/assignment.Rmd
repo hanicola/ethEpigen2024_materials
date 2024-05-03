@@ -1,0 +1,215 @@
+---
+title: "Assignment 08"
+author: "Nicola Hallmann"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Task
+Download (a subset of) ATAC-seq peak counts in the hippocampus upon stress (already in SummarizedExperiment format):
+https://ethz-ins.org/content/mouse_mm38_hippocampus.peakCounts.SE.rds
+
+* (the data is from the mouse ensembl GRCm38 genome – you should already have the genome, e.g. from week 6)
+* Using this object
+  * perform a chromVAR motif analysis, and 
+  * run 2 differential motif accessibility analyses, respectively:
+    * comparing stressed (denoted ‘FSS’ – forced swim stress) and control animals
+    * comparing male and female animals
+* For each analysis, 
+  * report the top most significant motifs
+  * plot a heatmap of the normalized accessibility scores across the samples for those motifs
+  * write a short paragraph interpreting the results
+
+```{r, packages}
+suppressPackageStartupMessages({
+  library(ensembldb)
+  library(epiwraps)
+  library(motifmatchr)
+  library(MotifDb)
+  library(universalmotif)
+  library(ggplot2)
+  library(SummarizedExperiment) # data structure
+  library(sechm) # for plotting heatmaps from a SummrizedExperiment
+  library(BiocParallel) # for multithreading
+  library(chromVAR) # for motif accessibility estimation
+  library(limma) # for statistical analysis
+  library(AnnotationHub)
+})
+# to control multithreading, unix users can use:
+# register(MulticoreParam(4))
+# for windows users, rather one of the following:
+# register(SerialParam())
+register(SnowParam(3))
+```
+
+```{r, mm10 genome}
+ah <- AnnotationHub(localHub = TRUE)
+AnnotationHub::query(ah, c("Mus Musculus", "GRCm38"))
+
+GRCm38_genome <- ah[["AH68356"]]
+# we'll load it into memory:
+genome_seqs <- import(GRCm38_genome)
+# if the genome was a fasta file instead, import using Biostrings::readDNAStringSet()
+#ensdb <- ah[["AH89211"]] # mouse ensembldb object
+```
+
+```{r, data}
+# Download (a subset of) ATAC-seq peak counts in the hippocampus upon stress (already in SummarizedExperiment format)
+download.file("https://ethz-ins.org/content/mouse_mm38_hippocampus.peakCounts.SE.rds", "mouse_m38_hippocampus.peakCounts.SE.rds")
+hippoc_se <- readRDS("mouse_m38_hippocampus.peakCounts.SE.rds")
+```
+
+motif database
+```{r, motifs}
+motifs <- MotifDb::query(MotifDb, c("mus", "HOCOMOCOv10"))
+# convert to a format motifmatchr can use, and use the gene symbols as names
+motifs <- do.call(TFBSTools::PWMatrixList, setNames(
+  universalmotif::convert_motifs(motifs, class="TFBSTools-PWMatrix"), mcols(motifs)$geneSymbol))
+```
+
+                 
+```{r, SE}
+colnames(hippoc_se) # get the names of the assays to identify control/FSS and m/f
+# add to colData
+hippoc_se$sex <- c("f", "f", "f", "m", "m", "m", "f", "f", "f", "m", "m", "m")
+hippoc_se$condition <- c("ctrl", "ctrl", "ctrl", "ctrl", "ctrl", "ctrl", "FSS", "FSS", "FSS", "FSS", "FSS", "FSS")
+colData(hippoc_se)
+# add CG content of peaks to
+hippoc_se <- chromVAR::addGCBias(hippoc_se, genome = genome_seqs)
+
+# we find which peaks contain which motifs
+motifs_in_peaks <- motifmatchr::matchMotifs(motifs, subject = hippoc_se, genome = genome_seqs)
+```
+```{r}
+hist(rowData(hippoc_se)$bias)
+```
+
+
+```{r, chromVAR motif analysis}
+# for each peak, we identify similar peaks as background
+# this is a non-deterministic step - to be fully reproducible need a seed
+set.seed(1234)
+background <- chromVAR::getBackgroundPeaks(object = as.matrix(assays(hippoc_se)$counts), niterations=1000, bias = rowData(hippoc_se)$bias)
+
+# for each motif, we computed per-sample deviations relative to the background
+deviation <- chromVAR::computeDeviations(object = as.matrix(assays(hippoc_se)$counts), annotations = as.matrix(assay(motifs_in_peaks)), background_peaks = background)
+
+# dev
+head(assays(deviation)$z)
+deviation$sex <- c("f", "f", "f", "m", "m", "m", "f", "f", "f", "m", "m", "m")
+deviation$condition <- c("ctrl", "ctrl", "ctrl", "ctrl", "ctrl", "ctrl", "FSS", "FSS", "FSS", "FSS", "FSS", "FSS")
+```
+
+```{r}
+deviation$condition
+hippoc_se
+```
+
+
+## differential motif accessibility analyses
+
+### comparing stressed (denoted ‘FSS’ – forced swim stress) and control animals
+```{r, differential ctrl}
+deviation$condition
+deviation$condition <- factor(deviation$condition)
+deviation$condition <- relevel(deviation$condition, "ctrl")
+mm_ctrl <- model.matrix(~deviation$condition)
+# equivalent:
+#mm_ctrl <- model.matrix(~condition, data = as.data.frame(colData(deviation)))
+mm_ctrl
+```
+
+
+Differential motif accessibility analysis comparing the FSS condition to the control condition, extract significant motifs, and visualize the results in a scatter plot.
+```{r, fit & plot ctrl}
+# fit a linear model to the motif accessibility scores stored in the deviation object
+# The design matrix mm_ctrl is used to specify the experimental conditions
+# The eBayes function applies empirical Bayes moderation to the fitted model, resulting in a moderated linear model object stored in fit_ctrl.
+fit_ctrl <- eBayes(lmFit(assays(deviation)$z, mm_ctrl))
+fit_ctrl
+# extract results from the moderated linear model object fit_ctrl using the topTable function. 
+# coef argument specifies the contrast coefficient of interest (FSS vs. ctrl)
+# The number argument specifies the number of top results to extract (here: all).
+# The extracted results are stored in a data frame called res_ctrl.
+res_ctrl <- as.data.frame(topTable(fit_ctrl, coef="deviation$conditionFSS", number = Inf))
+head(res_ctrl)
+
+# create a scatter plot - logFC on x-axis vs. -log10(adj.P.Val) on y-axis. 
+# Each point on the plot represents a TF motif, their names are labeled on the plot using geom_text().
+ggplot(res_ctrl, aes(logFC, -log10(adj.P.Val), label = ID)) + geom_text() 
+```
+
+```{r, significant motifs ctrl}
+# report the top most significant motifs
+# Filter motifs based on adjusted p-value <= 0.05
+sig_motifs_ctrl <- res_ctrl[res_ctrl$adj.P.Val <= 0.05, ]
+print(sig_motifs_ctrl)
+```
+
+```{r, heatmap ctrl}
+# plot a heatmap of the normalized accessibility scores across the samples for those motifs
+# use the 'sechm' function to plot a heatmap of motif accessibility scores
+sechm(deviation, features = sig_motifs_ctrl$ID, assayName = "z", top_annotation = "condition")
+```
+
+```{r, motifs ctrl}
+# show the motifs
+view_motifs(motifs[c("GCR","ANDR")])
+```
+
+
+#### Interpretation
+
+The motif accessibility for two TFs (GCR, ANDR) was significantly different between stressed (FSS) and control animals. Both TFs have very similar motifs with the high confidence base pairs being identical. This suggests that GCR and ANDR regulate the same genomic sites. Their motifs are more accessible compared to the control. Looking into the functions of those TFs might reveal how they could be linked to stress-response. One out of the six stressed animals did not exhibit the same change in accessibility as the other five. To determine if this is due to variation in the experimental work or due to different stress response of the animal in questions, more experiments would be required.
+
+
+### comparing male and female animals
+```{r, differential sex}
+deviation$sex
+deviation$sex <- factor(deviation$sex)
+deviation$sex <- relevel(deviation$sex, "m")
+mm_sex <- model.matrix(~deviation$sex)
+# equivalent:
+#mm_sex <- model.matrix(~sex, data = as.data.frame(colData(deviation)))
+mm_sex
+```
+
+```{r, model & plot sex}
+# fit a linear model
+fit_sex <- eBayes(lmFit(assays(deviation)$z, mm_sex))
+fit_sex
+# extract results
+res_sex <- as.data.frame(topTable(fit_sex, coef="deviation$sexf", number = Inf))
+head(res_sex)
+
+# create a scatter plot
+ggplot(res_sex, aes(logFC, -log10(adj.P.Val), label = ID)) + geom_text() 
+```
+
+```{r, significant motifs sex}
+# report the top most significant motifs
+# Filter motifs based on adjusted p-value <= 0.05
+sig_motifs_sex <- res_sex[res_sex$adj.P.Val <= 0.05, ]
+print(sig_motifs_sex)
+```
+
+```{r, heatmap sex}
+# plot a heatmap of the normalized accessibility scores across the samples for those motifs
+# use the 'sechm' function to plot a heatmap of motif accessibility scores
+sechm(deviation, features = sig_motifs_sex$ID, assayName = "z", top_annotation = "sex")
+```
+
+```{r, motifs sex}
+# show the motifs
+view_motifs(motifs[c("ZN143", "TYY1")])
+view_motifs(motifs[c("TEAD1", "PTF1A")])
+view_motifs(motifs[c("NR0B1", "RUNX3", "MYB")])
+view_motifs(motifs[c("TFEB")])
+```
+
+#### Interpretation
+Eight TFs are show differential motif accessibility when comparing male and female animals. Of those one shows decreased accessibility in females compared to males and seven show increased accessibility in females compared to males. The motifs for ZN143 and TYY1, the motifs for TEAD1 and PTF1A[RC] and the motifs for NR0B1 and RUNX3 are similar to one another. The motif for MYB does not show and clear resemblance to any of the other six TF that show increased motif accessibility in females over males. The motif for TFEB, the only TF showing decreased motif accessibility in females over males, does not show any resemblance to the motifs of the other TFs. This suggests that the TFs with similar motifs regulate the same genomic sites.
