@@ -1,0 +1,7 @@
+I have two ideas for a project
+
+1. Critical Reproduction of the Analysis of in a Published Article
+Manzo et al. (Manzo, Massimiliano, et al. "Isoform‐specific localization of DNMT3A regulates DNA methylation fidelity at bivalent CpG islands." The EMBO journal 36.23 (2017): 3421-3434.) looked at how the different isoforms of DNMT3 differ in their binding behaviour and how the coincide with other DNA marks. I would like to look at the genes these site correspond to and if there is a pattern such as an enrichment of genes belonging to certain pathways or known to be involved in diseases.
+
+2. How does DNA-methylation affect Transcription Factor binding.
+There is quite extensive literature and data on the motifs TFs recognise and also some studies looking into how the binding changes in the absence of DNA-methylation, e.g. in DNMT triple knock out cells (TKO). I would like to see if it is possible to get the sequencing data for several of these studies and perform differential motif analysis across them.
